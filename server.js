@@ -29,35 +29,62 @@ app.post('/save', async (req, res) => {
     let current = await db.getPlayer(d.userId);
     if (!current) { await db.createPlayer(d.userId, d.name); current = await db.getPlayer(d.userId); }
 
-    // ПОДРОБНЫЙ ЛОГ
-    console.log('━━━ SAVE IN  id=' + d.userId);
-    console.log('   score=' + d.score + ' tapLevel=' + d.tapLevel + ' energyLevel=' + d.energyLevel + ' regenLevel=' + d.regenLevel + ' tapPower=' + d.tapPower + ' taps=' + d.totalTaps);
-    console.log('   CURRENT score=' + current.score + ' tapLevel=' + current.tapLevel + ' energyLevel=' + current.energyLevel + ' regenLevel=' + current.regenLevel + ' tapPower=' + current.tapPower + ' taps=' + current.totalTaps);
-
     const newScore = Math.floor(d.score || 0);
-    const currentScore = current.score || 0;
+    const currentScore = Math.floor(current.score || 0);
     const newTaps = Math.floor(d.totalTaps || 0);
-    const currentTaps = current.totalTaps || 0;
-    const newTapLevel = d.tapLevel || 0;
-    const currentTapLevel = current.tapLevel || 0;
-    const newEnergyLevel = d.energyLevel || 0;
-    const currentEnergyLevel = current.energyLevel || 0;
-    const newRegenLevel = d.regenLevel || 0;
-    const currentRegenLevel = current.regenLevel || 0;
+    const currentTaps = Math.floor(current.totalTaps || 0);
+    const newTapLevel = Math.floor(d.tapLevel || 0);
+    const currentTapLevel = Math.floor(current.tapLevel || 0);
+    const newEnergyLevel = Math.floor(d.energyLevel || 0);
+    const currentEnergyLevel = Math.floor(current.energyLevel || 0);
+    const newRegenLevel = Math.floor(d.regenLevel || 0);
+    const currentRegenLevel = Math.floor(current.regenLevel || 0);
+    const newPlayerLevel = Math.floor(d.playerLevel || 1);
+    const currentPlayerLevel = Math.floor(current.playerLevel || 1);
 
+    console.log('━━━ SAVE IN  id=' + d.userId);
+    console.log('   NEW: score=' + newScore + ' tapLevel=' + newTapLevel + ' energyLevel=' + newEnergyLevel + ' regenLevel=' + newRegenLevel + ' playerLevel=' + newPlayerLevel);
+    console.log('   CUR: score=' + currentScore + ' tapLevel=' + currentTapLevel + ' energyLevel=' + currentEnergyLevel + ' regenLevel=' + currentRegenLevel + ' playerLevel=' + currentPlayerLevel);
+
+    // ❌ ИГНОРИРУЕМ, если ЛЮБОЙ ключевой показатель уменьшился
     const scoreLower = newScore < currentScore;
-    const tapsLower = newTaps < currentTaps;
-    const levelsGrew = (newTapLevel > currentTapLevel) || (newEnergyLevel > currentEnergyLevel) || (newRegenLevel > currentRegenLevel);
+    const tapLevelLower = newTapLevel < currentTapLevel;
+    const energyLevelLower = newEnergyLevel < currentEnergyLevel;
+    const regenLevelLower = newRegenLevel < currentRegenLevel;
+    const playerLevelLower = newPlayerLevel < currentPlayerLevel;
 
-    if (scoreLower && tapsLower && !levelsGrew) {
-      console.log('   ❌ IGNORED');
-      return res.json({ success: true, ignored: true, current: { score: currentScore, totalTaps: currentTaps } });
+    if (scoreLower || tapLevelLower || energyLevelLower || regenLevelLower || playerLevelLower) {
+      console.log('   ❌ IGNORED (lower values)');
+      return res.json({
+        success: true,
+        ignored: true,
+        current: {
+          score: currentScore,
+          totalTaps: currentTaps,
+          tapLevel: currentTapLevel,
+          energyLevel: currentEnergyLevel,
+          regenLevel: currentRegenLevel,
+          tapPower: current.tapPower,
+          playerLevel: currentPlayerLevel
+        }
+      });
     }
 
     await db.savePlayer(d.userId, d);
     const check = await db.getPlayer(d.userId);
-    console.log('   ✅ SAVED score=' + check.score + ' tapLevel=' + check.tapLevel + ' tapPower=' + check.tapPower);
-    res.json({ success: true, saved: { score: check.score, totalTaps: check.totalTaps, tapLevel: check.tapLevel, energyLevel: check.energyLevel, regenLevel: check.regenLevel, tapPower: check.tapPower } });
+    console.log('   ✅ SAVED: score=' + check.score + ' tapLevel=' + check.tapLevel + ' energyLevel=' + check.energyLevel + ' regenLevel=' + check.regenLevel + ' playerLevel=' + check.playerLevel);
+    res.json({
+      success: true,
+      saved: {
+        score: check.score,
+        totalTaps: check.totalTaps,
+        tapLevel: check.tapLevel,
+        energyLevel: check.energyLevel,
+        regenLevel: check.regenLevel,
+        tapPower: check.tapPower,
+        playerLevel: check.playerLevel
+      }
+    });
   } catch (e) {
     console.log('❌ SAVE ERROR:', e.message);
     res.json({ error: e.message });
