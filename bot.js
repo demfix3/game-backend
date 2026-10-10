@@ -8,7 +8,7 @@ const APP_SHORT_NAME = 'game';
 
 const STARS_PACKS = {
   support_15: { stars: 15, item: 'support', label: '☕ Поддержать · 15 ⭐', coins: 0, boost: null },
-  pack_start: { stars: 19, item: 'autoclicker24', label: '🤖 Автокликер 24ч · 19 ⭐', coins: 0, boost: { type: 'autoclick', duration: 24 * 60 * 60 * 1000 } },
+  pack_start: { stars: 1, item: 'autoclicker24', label: '🤖 Автокликер 24ч · 1 ⭐ (ТЕСТ)', coins: 0, boost: { type: 'autoclick', duration: 24 * 60 * 60 * 1000 } },
   pack_small: { stars: 49, item: 'small', label: '💎 Малый пак · 49 ⭐', coins: 25000, boost: null },
   pack_medium: { stars: 99, item: 'medium', label: '💎 Средний пак · 99 ⭐', coins: 75000, boost: null },
   pack_large: { stars: 199, item: 'large', label: '💎 Большой пак · 199 ⭐', coins: 200000, boost: null },
