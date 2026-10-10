@@ -4,7 +4,7 @@ const db = require('./database');
 const TOKEN = process.env.BOT_TOKEN || '8946713588:AAFBiC0BP2HU7a9iS-4laj6SR7xjutcOexI';
 const ADMIN_ID = process.env.ADMIN_ID || '1209267677';
 const BOT_USERNAME = 'igra2026_bot';
-const APP_SHORT_NAME = 'game'; // ⚠️ должно совпадать с Short Name в BotFather
+const APP_SHORT_NAME = 'game';
 
 const bot = new TelegramBot(TOKEN, { 
   polling: {
@@ -32,11 +32,15 @@ bot.onText(/\/start/, async (msg) => {
   const refMatch = text.match(/ref_(\d+)/);
 
   try {
-    await db.createPlayer(userId);
+    await db.createPlayer(userId, name);
 
     if (refMatch && refMatch[1] !== userId) {
-      await db.addReferral(userId, refMatch[1]);
-      try { await bot.sendMessage(refMatch[1], '🎉 У тебя новый реферал! +1 друг'); } catch(e) {}
+      const result = await db.addReferral(userId, refMatch[1]);
+      if (result.success) {
+        try { await bot.sendMessage(refMatch[1], '🎉 У тебя новый реферал! +1 друг'); } catch(e) {}
+      } else {
+        console.log('REF NOT ADDED:', result.reason);
+      }
     }
 
     const p = await db.getPlayer(userId);
