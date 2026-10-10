@@ -6,6 +6,16 @@ const ADMIN_ID = process.env.ADMIN_ID || '1209267677';
 const BOT_USERNAME = 'igra2026_bot';
 const APP_SHORT_NAME = 'game';
 
+// Цены в звёздах
+const STARS_PACKS = {
+  support_15: { stars: 15, item: 'support', label: '☕ Поддержать · 15 ⭐', coins: 0, boost: null },
+  pack_start: { stars: 19, item: 'autoclicker24', label: '🤖 Автокликер 24ч · 19 ⭐', coins: 0, boost: { type: 'autoclick', duration: 24 * 60 * 60 * 1000 } },
+  pack_small: { stars: 49, item: 'small', label: '💎 Малый пак · 49 ⭐', coins: 25000, boost: null },
+  pack_medium: { stars: 99, item: 'medium', label: '💎 Средний пак · 99 ⭐', coins: 75000, boost: null },
+  pack_large: { stars: 199, item: 'large', label: '💎 Большой пак · 199 ⭐', coins: 200000, boost: null },
+  pack_mega: { stars: 499, item: 'mega', label: '💎 МЕГА-ПАК · 499 ⭐', coins: 700000, boost: { type: 'autoclick', duration: 7 * 24 * 60 * 60 * 1000 } }
+};
+
 const bot = new TelegramBot(TOKEN, { polling: { interval: 300, autoStart: true, params: { timeout: 10 } } });
 
 bot.on('polling_error', (err) => {
@@ -44,6 +54,7 @@ function adminPanel() {
     [{ text: '🎁 Бонус всем', callback_data: 'admin_bonus' }],
     [{ text: '📢 Рассылка', callback_data: 'admin_broadcast' }],
     [{ text: '🎫 Промокоды', callback_data: 'admin_promo' }],
+    [{ text: '💎 Донаты', callback_data: 'admin_donates' }],
     [{ text: '🗑 Удалить игрока', callback_data: 'admin_delete' }]
   ]};
 }
@@ -67,14 +78,11 @@ bot.onText(/\/start/, async (msg) => {
   const userId = String(msg.from.id);
   const name = msg.from.first_name || 'Игрок';
   const refMatch = (msg.text || '').match(/ref_(\d+)/);
-
   try {
     await db.createPlayer(userId, name);
     if (refMatch && refMatch[1] !== userId) {
       const result = await db.addReferral(userId, refMatch[1]);
-      if (result.success) {
-        try { await bot.sendMessage(refMatch[1], '🎉 У тебя новый реферал! +1 друг'); } catch(e) {}
-      }
+      if (result.success) { try { await bot.sendMessage(refMatch[1], '🎉 У тебя новый реферал!'); } catch(e) {} }
     }
     const p = await db.getPlayer(userId);
     bot.sendMessage(chatId, buildStatsText(name, p, false), { parse_mode: 'HTML', reply_markup: buildKeyboard(userId) });
@@ -90,32 +98,65 @@ bot.onText(/\/admin/, (msg) => {
   bot.sendMessage(msg.chat.id, '👑 <b>АДМИН-ПАНЕЛЬ</b>\n\nВыбери действие:', { parse_mode: 'HTML', reply_markup: adminPanel() });
 });
 
+// ============ /buy — показать паки ============
+bot.onText(/\/buy/, async (msg) => {
+  const chatId = msg.chat.id;
+  let text = '💎 <b>МАГАЗИН</b>\n\nВыбери пакет:\n\n';
+  Object.entries(STARS_PACKS).forEach(([key, pack]) => {
+    text += pack.label + '\n';
+    if (pack.coins) text += '  💰 ' + pack.coins.toLocaleString('ru') + ' монет\n';
+    if (pack.boost) text += '  ⚡ Буст на ' + (pack.boost.duration / 3600000) + ' ч\n';
+    text += '\n';
+  });
+  const kb = { inline_keyboard: Object.entries(STARS_PACKS).map(([key, pack]) => [{ text: pack.label, callback_data: 'buy_' + key }]) };
+  bot.sendMessage(chatId, text, { parse_mode: 'HTML', reply_markup: kb });
+});
+
 // ============ CALLBACKS ============
 bot.on('callback_query', async (query) => {
   const data = query.data || '';
   const chatId = query.message.chat.id;
   const msgId = query.message.message_id;
   const fromId = query.from.id;
+  const userId = String(fromId);
+  const name = query.from.first_name || 'Игрок';
 
-  // Refresh (для игроков)
+  // REFRESH
   if (data.startsWith('refresh_')) {
-    const userId = data.replace('refresh_', '');
-    const name = query.from.first_name || 'Игрок';
     try {
-      const p = await db.getPlayer(userId);
+      const p = await db.getPlayer(data.replace('refresh_', ''));
       if (!p) return bot.answerCallbackQuery(query.id, { text: '❌ Не найден' });
       try {
         await bot.editMessageText(buildStatsText(name, p, true), { chat_id: chatId, message_id: msgId, parse_mode: 'HTML', reply_markup: buildKeyboard(userId) });
         bot.answerCallbackQuery(query.id, { text: '✅ Обновлено!' });
-      } catch (editErr) {
-        if (editErr.message && editErr.message.includes('message is not modified')) {
-          bot.answerCallbackQuery(query.id, { text: '📊 Данные актуальны' });
-        } else {
-          await bot.sendMessage(chatId, buildStatsText(name, p, true), { parse_mode: 'HTML', reply_markup: buildKeyboard(userId) });
-          bot.answerCallbackQuery(query.id, { text: '✅ Обновлено!' });
-        }
+      } catch (e) {
+        if (e.message && e.message.includes('message is not modified')) bot.answerCallbackQuery(query.id, { text: '📊 Актуально' });
+        else await bot.sendMessage(chatId, buildStatsText(name, p, true), { parse_mode: 'HTML', reply_markup: buildKeyboard(userId) });
       }
     } catch (e) { bot.answerCallbackQuery(query.id, { text: '❌ Ошибка' }); }
+    return;
+  }
+
+  // BUY (Stars invoice)
+  if (data.startsWith('buy_')) {
+    const key = data.replace('buy_', '');
+    const pack = STARS_PACKS[key];
+    if (!pack) return bot.answerCallbackQuery(query.id, { text: '❌ Не найдено' });
+    try {
+      await bot.sendInvoice(
+        chatId,
+        pack.label,
+        'Нажми "Оплатить" чтобы купить за ' + pack.stars + ' ⭐',
+        JSON.stringify({ userId, key }),
+        '', // provider_token пустой для Stars
+        'XTR', // валюта Stars
+        [{ label: pack.label, amount: pack.stars }]
+      );
+      bot.answerCallbackQuery(query.id);
+    } catch (e) {
+      console.log('INVOICE ERROR:', e.message);
+      bot.answerCallbackQuery(query.id, { text: '❌ Ошибка оплаты' });
+    }
     return;
   }
 
@@ -140,10 +181,9 @@ bot.on('callback_query', async (query) => {
     if (data === 'admin_top') {
       const top = await db.getTop(20);
       let text = '👥 <b>ТОП-20</b>\n\n';
-      if (!top.length) text += 'Пока никого.';
       top.forEach((p, i) => {
         const m = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : (i + 1) + '.';
-        text += m + ' <b>' + (p.name || 'Игрок') + '</b> — ' + (p.totalTaps || 0).toLocaleString('ru') + ' тапов\n<code>' + p.id + '</code>\n';
+        text += m + ' <b>' + (p.name || 'Игрок') + '</b> — ' + (p.totalTaps || 0).toLocaleString('ru') + '\n<code>' + p.id + '</code>\n';
       });
       await edit(text, adminBack()); bot.answerCallbackQuery(query.id); return;
     }
@@ -151,41 +191,91 @@ bot.on('callback_query', async (query) => {
     if (data === 'admin_give') { await edit('💰 <b>ВЫДАТЬ</b>\n\n<code>/give ID СУММА</code>', adminBack()); bot.answerCallbackQuery(query.id); return; }
     if (data === 'admin_ban') { await edit('🚫 <b>БАН</b>\n\n<code>/ban ID</code>', adminBack()); bot.answerCallbackQuery(query.id); return; }
     if (data === 'admin_unban') { await edit('✅ <b>РАЗБАН</b>\n\n<code>/unban ID</code>', adminBack()); bot.answerCallbackQuery(query.id); return; }
-    if (data === 'admin_bonus') { await edit('🎁 <b>БОНУС ВСЕМ</b>\n\n<code>/bonusall СУММА</code>', adminBack()); bot.answerCallbackQuery(query.id); return; }
+    if (data === 'admin_bonus') { await edit('🎁 <b>БОНУС</b>\n\n<code>/bonusall СУММА</code>', adminBack()); bot.answerCallbackQuery(query.id); return; }
     if (data === 'admin_broadcast') { await edit('📢 <b>РАССЫЛКА</b>\n\n<code>/broadcast ТЕКСТ</code>', adminBack()); bot.answerCallbackQuery(query.id); return; }
     if (data === 'admin_delete') { await edit('🗑 <b>УДАЛИТЬ</b>\n\n<code>/delete ID</code>', adminBack()); bot.answerCallbackQuery(query.id); return; }
-
-    if (data === 'admin_promo') { await edit('🎫 <b>ПРОМОКОДЫ</b>\n\nВыбери:', promoPanel()); bot.answerCallbackQuery(query.id); return; }
-
-    if (data === 'admin_promo_create') {
-      await edit('➕ <b>СОЗДАТЬ ПРОМОКОД</b>\n\nФормат:\n<code>/newpromo КОД СУММА КОЛИЧЕСТВО</code>\n\nПример:\n<code>/newpromo SUMMER 5000 100</code>', adminBack());
-      bot.answerCallbackQuery(query.id); return;
-    }
-
+    if (data === 'admin_promo') { await edit('🎫 <b>ПРОМОКОДЫ</b>', promoPanel()); bot.answerCallbackQuery(query.id); return; }
+    if (data === 'admin_promo_create') { await edit('➕ <b>СОЗДАТЬ</b>\n\n<code>/newpromo КОД СУММА КОЛИЧЕСТВО</code>', adminBack()); bot.answerCallbackQuery(query.id); return; }
     if (data === 'admin_promo_list') {
       const promos = await db.listPromos();
       let text = '📋 <b>ПРОМОКОДЫ</b>\n\n';
-      if (!promos.length) text += 'Пока нет промокодов.';
-      promos.forEach(p => {
-        text += '🎫 <code>' + p.code + '</code>\n💰 ' + p.reward.toLocaleString('ru') + ' · 👥 ' + p.usedCount + '/' + p.maxUses + '\n\n';
-      });
+      if (!promos.length) text += 'Пусто.';
+      promos.forEach(p => { text += '🎫 <code>' + p.code + '</code>\n💰 ' + p.reward.toLocaleString('ru') + ' · 👥 ' + p.usedCount + '/' + p.maxUses + '\n\n'; });
       await edit(text, promoPanel()); bot.answerCallbackQuery(query.id); return;
     }
+    if (data === 'admin_promo_delete') { await edit('🗑 <b>УДАЛИТЬ</b>\n\n<code>/delpromo КОД</code>', promoPanel()); bot.answerCallbackQuery(query.id); return; }
 
-    if (data === 'admin_promo_delete') {
-      await edit('🗑 <b>УДАЛИТЬ ПРОМОКОД</b>\n\n<code>/delpromo КОД</code>', promoPanel());
+    if (data === 'admin_donates') {
+      const s = await db.getStats();
+      await edit('💎 <b>ДОНАТЫ</b>\n\n⭐ Stars можно увидеть в @BotFather → Payments\n\nПоследние платежи — в логах Render.', adminBack());
       bot.answerCallbackQuery(query.id); return;
     }
 
   } catch (e) { console.log('ADMIN ERROR:', e.message); bot.answerCallbackQuery(query.id, { text: '❌ Ошибка' }); }
 });
 
+// ============ ПЛАТЕЖ ============
+bot.on('pre_checkout_query', (query) => {
+  bot.answerPreCheckoutQuery(query.id, true);
+});
+
+bot.on('successful_payment', async (msg) => {
+  const userId = String(msg.from.id);
+  const payment = msg.successful_payment;
+  const payload = JSON.parse(payment.invoice_payload || '{}');
+  const key = payload.key;
+  const pack = STARS_PACKS[key];
+
+  console.log('💎 PAYMENT:', userId, 'stars:', payment.total_amount, 'key:', key);
+
+  try {
+    // Защита от двойного начисления
+    const already = await db.hasPayment(payment.telegram_payment_charge_id);
+    if (already) {
+      console.log('⚠️ Payment already processed');
+      return;
+    }
+
+    await db.addPayment(userId, payment.total_amount, key, payment.telegram_payment_charge_id);
+
+    if (!pack) {
+      console.log('⚠️ Unknown pack:', key);
+      return;
+    }
+
+    // Начисляем монеты
+    if (pack.coins && pack.coins > 0) {
+      await db.giveCoins(userId, pack.coins);
+    }
+
+    // Активируем буст
+    if (pack.boost) {
+      await db.addBoost(userId, pack.boost.type, pack.boost.duration);
+    }
+
+    let successText = '✅ <b>Оплата получена!</b>\n\n';
+    successText += '⭐ Stars: <b>' + payment.total_amount + '</b>\n\n';
+    if (pack.coins) successText += '💰 +' + pack.coins.toLocaleString('ru') + ' монет\n';
+    if (pack.boost) {
+      const hours = pack.boost.duration / 3600000;
+      successText += '⚡ Буст активирован на <b>' + hours + ' ч</b>\n';
+      if (pack.boost.type === 'autoclick') successText += '  🤖 Автокликер: +1 монета каждые 5 сек\n';
+    }
+    if (key === 'support_15') successText += '❤️ Спасибо за поддержку!\n';
+
+    bot.sendMessage(msg.chat.id, successText, { parse_mode: 'HTML' });
+  } catch (e) {
+    console.log('PAYMENT ERROR:', e.message);
+    bot.sendMessage(msg.chat.id, '❌ Ошибка при обработке платежа. Напиши админу.');
+  }
+});
+
 // ============ АДМИН-КОМАНДЫ ============
 bot.onText(/\/stats/, async (msg) => { if (!isAdmin(msg.from.id)) return; const s = await db.getStats(); bot.sendMessage(msg.chat.id, '📊 Игроков: ' + (s.players || 0) + '\n💰 Монет: ' + (s.totalScore || 0).toLocaleString('ru')); });
-bot.onText(/\/give (\d+) (\d+)/, async (msg, m) => { if (!isAdmin(msg.from.id)) return; await db.giveCoins(m[1], parseInt(m[2])); bot.sendMessage(msg.chat.id, '✅ Выдано ' + parseInt(m[2]).toLocaleString('ru') + ' игроку <code>' + m[1] + '</code>', { parse_mode: 'HTML' }); });
-bot.onText(/\/ban (\d+)/, async (msg, m) => { if (!isAdmin(msg.from.id)) return; await db.banPlayer(m[1], true); bot.sendMessage(msg.chat.id, '🚫 Забанен <code>' + m[1] + '</code>', { parse_mode: 'HTML' }); });
-bot.onText(/\/unban (\d+)/, async (msg, m) => { if (!isAdmin(msg.from.id)) return; await db.banPlayer(m[1], false); bot.sendMessage(msg.chat.id, '✅ Разбанен <code>' + m[1] + '</code>', { parse_mode: 'HTML' }); });
-bot.onText(/\/delete (\d+)/, async (msg, m) => { if (!isAdmin(msg.from.id)) return; await db.deletePlayer(m[1]); bot.sendMessage(msg.chat.id, '🗑 Удалён <code>' + m[1] + '</code>', { parse_mode: 'HTML' }); });
+bot.onText(/\/give (\d+) (\d+)/, async (msg, m) => { if (!isAdmin(msg.from.id)) return; await db.giveCoins(m[1], parseInt(m[2])); bot.sendMessage(msg.chat.id, '✅ Выдано ' + parseInt(m[2]).toLocaleString('ru')); });
+bot.onText(/\/ban (\d+)/, async (msg, m) => { if (!isAdmin(msg.from.id)) return; await db.banPlayer(m[1], true); bot.sendMessage(msg.chat.id, '🚫 Забанен'); });
+bot.onText(/\/unban (\d+)/, async (msg, m) => { if (!isAdmin(msg.from.id)) return; await db.banPlayer(m[1], false); bot.sendMessage(msg.chat.id, '✅ Разбанен'); });
+bot.onText(/\/delete (\d+)/, async (msg, m) => { if (!isAdmin(msg.from.id)) return; await db.deletePlayer(m[1]); bot.sendMessage(msg.chat.id, '🗑 Удалён'); });
 
 bot.onText(/\/broadcast (.+)/, async (msg, m) => {
   if (!isAdmin(msg.from.id)) return;
@@ -207,17 +297,15 @@ bot.onText(/\/bonusall (\d+)/, async (msg, m) => {
 bot.onText(/\/newpromo (\S+) (\d+) (\d+)/, async (msg, m) => {
   if (!isAdmin(msg.from.id)) return;
   const code = m[1].toUpperCase();
-  const reward = parseInt(m[2]);
-  const maxUses = parseInt(m[3]);
-  const result = await db.createPromo(code, reward, maxUses);
-  if (result.success) bot.sendMessage(msg.chat.id, '✅ Промокод <code>' + code + '</code> создан!\n💰 ' + reward.toLocaleString('ru') + ' монет\n👥 Лимит: ' + maxUses, { parse_mode: 'HTML' });
+  const result = await db.createPromo(code, parseInt(m[2]), parseInt(m[3]));
+  if (result.success) bot.sendMessage(msg.chat.id, '✅ Промокод <code>' + code + '</code> создан!', { parse_mode: 'HTML' });
   else bot.sendMessage(msg.chat.id, '❌ Ошибка: ' + result.error);
 });
 
 bot.onText(/\/delpromo (\S+)/, async (msg, m) => {
   if (!isAdmin(msg.from.id)) return;
   await db.deletePromo(m[1].toUpperCase());
-  bot.sendMessage(msg.chat.id, '🗑 Промокод <code>' + m[1].toUpperCase() + '</code> удалён', { parse_mode: 'HTML' });
+  bot.sendMessage(msg.chat.id, '🗑 Удалён <code>' + m[1].toUpperCase() + '</code>', { parse_mode: 'HTML' });
 });
 
 bot.getMe().then((me) => console.log('✅ Бот: ' + me.username)).catch((e) => console.log('❌ Ошибка:', e.message));
