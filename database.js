@@ -1,6 +1,5 @@
 const sqlite3 = require('sqlite3').verbose();
 
-// ⚠️ Используем /data если есть (Persistent Disk), иначе game.db
 const DB_PATH = process.env.DB_PATH || (process.env.NODE_ENV === 'production' && require('fs').existsSync('/data') ? '/data/game.db' : 'game.db');
 console.log('📁 Database path:', DB_PATH);
 
@@ -52,7 +51,24 @@ db.run(`CREATE TABLE IF NOT EXISTS promo_uses (
   UNIQUE(code, user_id)
 )`);
 
-// ============ ИГРОКИ ============
+// Бусты (автокликер)
+db.run(`CREATE TABLE IF NOT EXISTS boosts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id TEXT,
+  type TEXT,
+  active_until INTEGER,
+  created_at INTEGER
+)`);
+
+// Платежи (Stars)
+db.run(`CREATE TABLE IF NOT EXISTS payments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id TEXT,
+  amount INTEGER,
+  item TEXT,
+  charge_id TEXT UNIQUE,
+  created_at INTEGER
+)`);
 
 function getPlayer(id) {
   return new Promise((resolve) => {
@@ -71,26 +87,8 @@ function savePlayer(id, data) {
     db.run('INSERT OR IGNORE INTO players (id, name, created_at, last_seen) VALUES (?, ?, ?, ?)', [id, data.name || 'Игрок', Date.now(), Date.now()], () => {
       db.run(
         'UPDATE players SET name = ?, score = ?, energy = ?, maxEnergy = ?, regen = ?, tapPower = ?, tapLevel = ?, energyLevel = ?, regenLevel = ?, totalTaps = ?, playerLevel = ?, last_seen = ? WHERE id = ?',
-        [
-          data.name || 'Игрок',
-          Math.floor(data.score || 0),
-          data.energy !== undefined ? data.energy : 100,
-          data.maxEnergy || 100,
-          data.regen || 0.5,
-          data.tapPower || 1,
-          data.tapLevel || 0,
-          data.energyLevel || 0,
-          data.regenLevel || 0,
-          Math.floor(data.totalTaps || 0),
-          data.playerLevel || 1,
-          Date.now(),
-          id
-        ],
-        function(err) {
-          if (err) console.log('SQL ERROR:', err);
-          else console.log('UPDATED ROWS:', this.changes, 'for id:', id);
-          resolve();
-        }
+        [data.name || 'Игрок', Math.floor(data.score || 0), data.energy !== undefined ? data.energy : 100, data.maxEnergy || 100, data.regen || 0.5, data.tapPower || 1, data.tapLevel || 0, data.energyLevel || 0, data.regenLevel || 0, Math.floor(data.totalTaps || 0), data.playerLevel || 1, Date.now(), id],
+        function(err) { if (err) console.log('SQL ERROR:', err); else console.log('UPDATED ROWS:', this.changes, 'for id:', id); resolve(); }
       );
     });
   });
@@ -134,8 +132,7 @@ function deletePlayer(userId) {
   });
 }
 
-// ============ РЕФЕРАЛЫ ============
-
+// ===== РЕФЕРАЛЫ =====
 function getReferrals(userId) {
   return new Promise((resolve) => {
     db.get('SELECT refCount, refClaimed FROM players WHERE id = ?', [userId], (err, row) => resolve(row || { refCount: 0, refClaimed: 0 }));
@@ -169,8 +166,7 @@ function addReferral(userId, refId) {
   });
 }
 
-// ============ ПРОМОКОДЫ ============
-
+// ===== ПРОМОКОДЫ =====
 function createPromo(code, reward, maxUses) {
   return new Promise((resolve) => {
     db.run('INSERT OR REPLACE INTO promocodes (code, reward, maxUses, usedCount, created_at) VALUES (?, ?, ?, 0, ?)', [code, reward, maxUses, Date.now()], function(err) {
@@ -219,4 +215,49 @@ function usePromo(code, userId) {
   });
 }
 
-module.exports = { getPlayer, createPlayer, savePlayer, getTop, addReferral, getReferrals, claimRefs, getStats, giveCoins, getAllPlayers, banPlayer, deletePlayer, createPromo, getPromo, listPromos, deletePromo, usePromo };
+// ===== БУСТЫ / АВТОКЛИКЕР =====
+function addBoost(userId, type, durationMs) {
+  return new Promise((resolve) => {
+    const activeUntil = Date.now() + durationMs;
+    db.run('INSERT INTO boosts (user_id, type, active_until, created_at) VALUES (?, ?, ?, ?)', [userId, type, activeUntil, Date.now()], () => {
+      resolve({ success: true, activeUntil });
+    });
+  });
+}
+
+function getActiveBoosts(userId) {
+  return new Promise((resolve) => {
+    const now = Date.now();
+    db.all('SELECT * FROM boosts WHERE user_id = ? AND active_until > ? ORDER BY active_until DESC', [userId, now], (err, rows) => resolve(rows || []));
+  });
+}
+
+// ===== ПЛАТЕЖИ =====
+function addPayment(userId, amount, item, chargeId) {
+  return new Promise((resolve) => {
+    db.run('INSERT OR IGNORE INTO payments (user_id, amount, item, charge_id, created_at) VALUES (?, ?, ?, ?, ?)', [userId, amount, item, chargeId, Date.now()], function(err) {
+      if (err) return resolve({ success: false, error: err.message });
+      resolve({ success: true });
+    });
+  });
+}
+
+function hasPayment(chargeId) {
+  return new Promise((resolve) => {
+    db.get('SELECT * FROM payments WHERE charge_id = ?', [chargeId], (err, row) => resolve(!!row));
+  });
+}
+
+function getTotalDonated(userId) {
+  return new Promise((resolve) => {
+    db.get('SELECT SUM(amount) as total FROM payments WHERE user_id = ?', [userId], (err, row) => resolve((row && row.total) || 0));
+  });
+}
+
+module.exports = {
+  getPlayer, createPlayer, savePlayer, getTop, getStats, giveCoins, getAllPlayers, banPlayer, deletePlayer,
+  addReferral, getReferrals, claimRefs,
+  createPromo, getPromo, listPromos, deletePromo, usePromo,
+  addBoost, getActiveBoosts,
+  addPayment, hasPayment, getTotalDonated
+};
