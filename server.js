@@ -19,7 +19,7 @@ app.get('/load', async (req, res) => {
   if (!userId || userId === 'undefined') return res.json({ error: 'no id' });
   let player = await db.getPlayer(userId);
   if (!player) {
-    await db.createPlayer(userId);
+    await db.createPlayer(userId, 'Игрок');
     player = await db.getPlayer(userId);
   }
   res.json(player);
@@ -32,7 +32,7 @@ app.post('/save', async (req, res) => {
 
     let current = await db.getPlayer(d.userId);
     if (!current) {
-      await db.createPlayer(d.userId);
+      await db.createPlayer(d.userId, d.name);
       current = await db.getPlayer(d.userId);
     }
 
@@ -41,17 +41,16 @@ app.post('/save', async (req, res) => {
     const currentTaps = current.totalTaps || 0;
     const newTaps = Math.floor(d.totalTaps || 0);
 
-    // Игнорируем save если новый score МЕНЬШЕ текущего И новый totalTaps МЕНЬШЕ текущего
+    // Если новый score МЕНЬШЕ текущего И тапы меньше - игнорируем
     if (newScore < currentScore && newTaps < currentTaps) {
       console.log('SAVE IGNORED (lower):', d.userId, 'new score:', newScore, 'current:', currentScore);
       res.json({ success: true, ignored: true, current: { score: currentScore, totalTaps: currentTaps } });
       return;
     }
 
-    // Иначе — сохраняем
     await db.savePlayer(d.userId, d);
     const check = await db.getPlayer(d.userId);
-    console.log('SAVE OK:', d.userId, 'score:', check.score, 'taps:', check.totalTaps);
+    console.log('SAVE OK:', d.userId, 'name:', check.name, 'score:', check.score, 'taps:', check.totalTaps);
     res.json({ success: true, saved: { score: check.score, totalTaps: check.totalTaps } });
   } catch (e) {
     console.log('SAVE ERROR:', e.message);
