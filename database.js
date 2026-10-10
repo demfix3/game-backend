@@ -41,8 +41,28 @@ function createPlayer(id) {
 
 function savePlayer(id, data) {
   return new Promise((resolve) => {
-    db.run(`UPDATE players SET score=?, energy=?, maxEnergy=?, regen=?, tapPower=?, tapLevel=?, energyLevel=?, regenLevel=?, totalTaps=?, playerLevel=?, last_seen=? WHERE id=?`,
-      [data.score, data.energy, data.maxEnergy, data.regen, data.tapPower, data.tapLevel, data.energyLevel, data.regenLevel, data.totalTaps, data.playerLevel, Date.now(), id], () => resolve());
+    db.run(
+      'UPDATE players SET score = ?, energy = ?, maxEnergy = ?, regen = ?, tapPower = ?, tapLevel = ?, energyLevel = ?, regenLevel = ?, totalTaps = ?, playerLevel = ?, last_seen = ? WHERE id = ?',
+      [
+        Math.floor(data.score || 0),
+        data.energy !== undefined ? data.energy : 100,
+        data.maxEnergy || 100,
+        data.regen || 0.5,
+        data.tapPower || 1,
+        data.tapLevel || 0,
+        data.energyLevel || 0,
+        data.regenLevel || 0,
+        Math.floor(data.totalTaps || 0),
+        data.playerLevel || 1,
+        Date.now(),
+        id
+      ],
+      function(err) {
+        if (err) console.log('SQL ERROR:', err);
+        else console.log('UPDATED ROWS:', this.changes, 'for id:', id);
+        resolve();
+      }
+    );
   });
 }
 
