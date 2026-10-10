@@ -72,7 +72,7 @@ function savePlayer(id, data) {
 
 function getTop(limit) {
   return new Promise((resolve) => {
-    db.all('SELECT id, score, playerLevel FROM players WHERE banned = 0 ORDER BY score DESC LIMIT ?', [limit], (err, rows) => resolve(rows || []));
+    db.all('SELECT id, score, totalTaps, playerLevel FROM players WHERE banned = 0 ORDER BY totalTaps DESC LIMIT ?', [limit], (err, rows) => resolve(rows || []));
   });
 }
 
