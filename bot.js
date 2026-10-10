@@ -24,6 +24,31 @@ bot.on('polling_error', (err) => {
 
 function isAdmin(userId) { return String(userId) === String(ADMIN_ID); }
 
+function buildStatsText(name, p, isRefresh) {
+  const title = isRefresh ? '🔄 <b>Обновлено!</b>' : '🎮 <b>Добро пожаловать в игру!</b>';
+  return title + '\n\n' +
+    '👤 <b>' + name + '</b>\n' +
+    '━━━━━━━━━━━━━━━━━━\n' +
+    '💰 Монет: <b>' + (p.score || 0).toLocaleString('ru') + '</b>\n' +
+    '🏆 Уровень: <b>' + (p.playerLevel || 1) + '</b>\n' +
+    '👆 Тапов: <b>' + (p.totalTaps || 0).toLocaleString('ru') + '</b>\n' +
+    '⚡ Сила тапа: <b>' + (p.tapPower || 1) + '</b>\n' +
+    '👥 Друзей: <b>' + (p.refCount || 0) + '</b>\n' +
+    '━━━━━━━━━━━━━━━━━━\n\n' +
+    '🚀 Тапай монету, качай уровни, соревнуйся!';
+}
+
+function buildKeyboard(userId) {
+  const tmeLink = 'https://t.me/' + BOT_USERNAME + '/' + APP_SHORT_NAME + '?startapp=' + userId;
+  return {
+    inline_keyboard: [
+      [{ text: '🎮 Играть', url: tmeLink }],
+      [{ text: '👥 Пригласить друга', url: 'https://t.me/share/url?url=https://t.me/' + BOT_USERNAME + '?start=ref_' + userId + '&text=Играй со мной!' }],
+      [{ text: '🔄 Обновить', callback_data: 'refresh_' + userId }]
+    ]
+  };
+}
+
 bot.onText(/\/start/, async (msg) => {
   const chatId = msg.chat.id;
   const userId = String(msg.from.id);
@@ -45,22 +70,41 @@ bot.onText(/\/start/, async (msg) => {
 
     const p = await db.getPlayer(userId);
 
-    const tmeLink = 'https://t.me/' + BOT_USERNAME + '/' + APP_SHORT_NAME + '?startapp=' + userId;
-
-    bot.sendMessage(chatId,
-      `👋 Привет, ${name}!\n\n🎮 Добро пожаловать в игру!\n\n💰 Монет: ${p.score}\n🏆 Уровень: ${p.playerLevel}\n👥 Друзей: ${p.refCount}`,
-      {
-        reply_markup: {
-          inline_keyboard: [
-            [{ text: '🎮 Играть', url: tmeLink }],
-            [{ text: '👥 Пригласить друга', url: 'https://t.me/share/url?url=https://t.me/' + BOT_USERNAME + '?start=ref_' + userId + '&text=Играй со мной!' }]
-          ]
-        }
-      }
-    );
+    bot.sendMessage(chatId, buildStatsText(name, p, false), {
+      parse_mode: 'HTML',
+      reply_markup: buildKeyboard(userId)
+    });
   } catch (e) {
     console.log('START ERROR:', e.message);
     bot.sendMessage(chatId, 'Ошибка. Попробуй ещё раз.');
+  }
+});
+
+// Кнопка "Обновить"
+bot.on('callback_query', async (query) => {
+  if (!query.data || !query.data.startsWith('refresh_')) return;
+
+  const userId = query.data.replace('refresh_', '');
+  const name = query.from.first_name || 'Игрок';
+
+  try {
+    const p = await db.getPlayer(userId);
+    if (!p) {
+      bot.answerCallbackQuery(query.id, { text: '❌ Игрок не найден' });
+      return;
+    }
+
+    await bot.editMessageText(buildStatsText(name, p, true), {
+      chat_id: query.message.chat.id,
+      message_id: query.message.message_id,
+      parse_mode: 'HTML',
+      reply_markup: buildKeyboard(userId)
+    });
+
+    bot.answerCallbackQuery(query.id, { text: '✅ Обновлено!' });
+  } catch (e) {
+    console.log('REFRESH ERROR:', e.message);
+    bot.answerCallbackQuery(query.id, { text: '❌ Ошибка обновления' });
   }
 });
 
@@ -72,13 +116,13 @@ bot.onText(/\/admin/, (msg) => {
 bot.onText(/\/stats/, async (msg) => {
   if (!isAdmin(msg.from.id)) return;
   const s = await db.getStats();
-  bot.sendMessage(msg.chat.id, `📊 Игроков: ${s.players}\n💰 Монет: ${s.totalScore || 0}`);
+  bot.sendMessage(msg.chat.id, '📊 Игроков: ' + s.players + '\n💰 Всего монет: ' + (s.totalScore || 0));
 });
 
 bot.onText(/\/give (\d+) (\d+)/, async (msg, match) => {
   if (!isAdmin(msg.from.id)) return;
   await db.giveCoins(match[1], parseInt(match[2]));
-  bot.sendMessage(msg.chat.id, `✅ Выдано ${match[2]} игроку ${match[1]}`);
+  bot.sendMessage(msg.chat.id, '✅ Выдано ' + match[2] + ' игроку ' + match[1]);
 });
 
 bot.onText(/\/broadcast (.+)/, async (msg, match) => {
@@ -86,9 +130,9 @@ bot.onText(/\/broadcast (.+)/, async (msg, match) => {
   const players = await db.getAllPlayers();
   let sent = 0;
   for (const p of players) {
-    try { await bot.sendMessage(p.id, `📢 ${match[1]}`); sent++; } catch(e) {}
+    try { await bot.sendMessage(p.id, '📢 ' + match[1]); sent++; } catch(e) {}
   }
-  bot.sendMessage(msg.chat.id, `✅ Отправлено ${sent}`);
+  bot.sendMessage(msg.chat.id, '✅ Отправлено ' + sent);
 });
 
 bot.getMe().then((me) => {
