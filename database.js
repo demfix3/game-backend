@@ -1,5 +1,13 @@
 const sqlite3 = require('sqlite3').verbose();
-const db = new sqlite3.Database('game.db');
+
+// ⚠️ Используем /data если есть (Persistent Disk), иначе game.db
+const DB_PATH = process.env.DB_PATH || (process.env.NODE_ENV === 'production' && require('fs').existsSync('/data') ? '/data/game.db' : 'game.db');
+console.log('📁 Database path:', DB_PATH);
+
+const db = new sqlite3.Database(DB_PATH, (err) => {
+  if (err) console.log('❌ DB ERROR:', err.message);
+  else console.log('✅ DB connected');
+});
 
 db.run(`CREATE TABLE IF NOT EXISTS players (
   id TEXT PRIMARY KEY,
@@ -44,7 +52,7 @@ db.run(`CREATE TABLE IF NOT EXISTS promo_uses (
   UNIQUE(code, user_id)
 )`);
 
-db.run('ALTER TABLE players ADD COLUMN name TEXT DEFAULT "Игрок"', (err) => { if (err) {} });
+// ============ ИГРОКИ ============
 
 function getPlayer(id) {
   return new Promise((resolve) => {
@@ -63,8 +71,26 @@ function savePlayer(id, data) {
     db.run('INSERT OR IGNORE INTO players (id, name, created_at, last_seen) VALUES (?, ?, ?, ?)', [id, data.name || 'Игрок', Date.now(), Date.now()], () => {
       db.run(
         'UPDATE players SET name = ?, score = ?, energy = ?, maxEnergy = ?, regen = ?, tapPower = ?, tapLevel = ?, energyLevel = ?, regenLevel = ?, totalTaps = ?, playerLevel = ?, last_seen = ? WHERE id = ?',
-        [data.name || 'Игрок', Math.floor(data.score || 0), data.energy !== undefined ? data.energy : 100, data.maxEnergy || 100, data.regen || 0.5, data.tapPower || 1, data.tapLevel || 0, data.energyLevel || 0, data.regenLevel || 0, Math.floor(data.totalTaps || 0), data.playerLevel || 1, Date.now(), id],
-        function(err) { if (err) console.log('SQL ERROR:', err); else console.log('UPDATED ROWS:', this.changes, 'for id:', id); resolve(); }
+        [
+          data.name || 'Игрок',
+          Math.floor(data.score || 0),
+          data.energy !== undefined ? data.energy : 100,
+          data.maxEnergy || 100,
+          data.regen || 0.5,
+          data.tapPower || 1,
+          data.tapLevel || 0,
+          data.energyLevel || 0,
+          data.regenLevel || 0,
+          Math.floor(data.totalTaps || 0),
+          data.playerLevel || 1,
+          Date.now(),
+          id
+        ],
+        function(err) {
+          if (err) console.log('SQL ERROR:', err);
+          else console.log('UPDATED ROWS:', this.changes, 'for id:', id);
+          resolve();
+        }
       );
     });
   });
@@ -73,39 +99,6 @@ function savePlayer(id, data) {
 function getTop(limit) {
   return new Promise((resolve) => {
     db.all('SELECT id, name, score, totalTaps, playerLevel FROM players WHERE banned = 0 ORDER BY totalTaps DESC LIMIT ?', [limit], (err, rows) => resolve(rows || []));
-  });
-}
-
-function getReferrals(userId) {
-  return new Promise((resolve) => {
-    db.get('SELECT refCount, refClaimed FROM players WHERE id = ?', [userId], (err, row) => resolve(row || { refCount: 0, refClaimed: 0 }));
-  });
-}
-
-function claimRefs(userId) {
-  return new Promise((resolve) => {
-    db.get('SELECT refCount, refClaimed FROM players WHERE id = ?', [userId], (err, row) => {
-      if (!row) return resolve({ success: false });
-      const newRefs = row.refCount - row.refClaimed;
-      if (newRefs <= 0) return resolve({ success: false });
-      const bonus = newRefs * 5000;
-      db.run('UPDATE players SET refClaimed = refCount, score = score + ? WHERE id = ?', [bonus, userId], () => {
-        resolve({ success: true, bonus });
-      });
-    });
-  });
-}
-
-function addReferral(userId, refId) {
-  return new Promise((resolve) => {
-    db.get('SELECT * FROM referrals WHERE user_id = ?', [userId], (err, row) => {
-      if (row) return resolve({ success: false, reason: 'already_referred' });
-      if (String(userId) === String(refId)) return resolve({ success: false, reason: 'self' });
-      db.run('INSERT INTO referrals (user_id, ref_id, created_at) VALUES (?, ?, ?)', [userId, refId, Date.now()], function(err) {
-        if (err) return resolve({ success: false, reason: 'db_error' });
-        db.run('UPDATE players SET refCount = refCount + 1 WHERE id = ?', [refId], () => resolve({ success: true }));
-      });
-    });
   });
 }
 
@@ -137,6 +130,41 @@ function deletePlayer(userId) {
   return new Promise((resolve) => {
     db.run('DELETE FROM players WHERE id = ?', [userId], () => {
       db.run('DELETE FROM referrals WHERE user_id = ? OR ref_id = ?', [userId, userId], () => resolve());
+    });
+  });
+}
+
+// ============ РЕФЕРАЛЫ ============
+
+function getReferrals(userId) {
+  return new Promise((resolve) => {
+    db.get('SELECT refCount, refClaimed FROM players WHERE id = ?', [userId], (err, row) => resolve(row || { refCount: 0, refClaimed: 0 }));
+  });
+}
+
+function claimRefs(userId) {
+  return new Promise((resolve) => {
+    db.get('SELECT refCount, refClaimed FROM players WHERE id = ?', [userId], (err, row) => {
+      if (!row) return resolve({ success: false });
+      const newRefs = row.refCount - row.refClaimed;
+      if (newRefs <= 0) return resolve({ success: false });
+      const bonus = newRefs * 5000;
+      db.run('UPDATE players SET refClaimed = refCount, score = score + ? WHERE id = ?', [bonus, userId], () => {
+        resolve({ success: true, bonus });
+      });
+    });
+  });
+}
+
+function addReferral(userId, refId) {
+  return new Promise((resolve) => {
+    db.get('SELECT * FROM referrals WHERE user_id = ?', [userId], (err, row) => {
+      if (row) return resolve({ success: false, reason: 'already_referred' });
+      if (String(userId) === String(refId)) return resolve({ success: false, reason: 'self' });
+      db.run('INSERT INTO referrals (user_id, ref_id, created_at) VALUES (?, ?, ?)', [userId, refId, Date.now()], function(err) {
+        if (err) return resolve({ success: false, reason: 'db_error' });
+        db.run('UPDATE players SET refCount = refCount + 1 WHERE id = ?', [refId], () => resolve({ success: true }));
+      });
     });
   });
 }
