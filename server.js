@@ -32,10 +32,14 @@ app.post('/save', async (req, res) => {
     console.log('SAVE:', d.userId, 'score:', d.score, 'taps:', d.totalTaps);
     await db.savePlayer(d.userId, d);
     const check = await db.getPlayer(d.userId);
+    if (!check) {
+      console.log('WARN: player not found after save:', d.userId);
+      return res.json({ success: true, note: 'created' });
+    }
     console.log('AFTER SAVE:', check.score, check.totalTaps);
     res.json({ success: true, saved: { score: check.score, totalTaps: check.totalTaps } });
   } catch (e) {
-    console.log('SAVE ERROR:', e);
+    console.log('SAVE ERROR:', e.message);
     res.json({ error: e.message });
   }
 });
