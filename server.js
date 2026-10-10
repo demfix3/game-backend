@@ -29,56 +29,45 @@ app.post('/save', async (req, res) => {
     let current = await db.getPlayer(d.userId);
     if (!current) { await db.createPlayer(d.userId, d.name); current = await db.getPlayer(d.userId); }
 
-    const newScore = Math.floor(d.score || 0);
-    const currentScore = Math.floor(current.score || 0);
-    const newTapLevel = Math.floor(d.tapLevel || 0);
-    const currentTapLevel = Math.floor(current.tapLevel || 0);
-    const newEnergyLevel = Math.floor(d.energyLevel || 0);
-    const currentEnergyLevel = Math.floor(current.energyLevel || 0);
-    const newRegenLevel = Math.floor(d.regenLevel || 0);
-    const currentRegenLevel = Math.floor(current.regenLevel || 0);
-    const newPlayerLevel = Math.floor(d.playerLevel || 1);
-    const currentPlayerLevel = Math.floor(current.playerLevel || 1);
+    const nScore = Math.floor(d.score || 0);
+    const cScore = Math.floor(current.score || 0);
+    const nTapLevel = Math.floor(d.tapLevel || 0);
+    const cTapLevel = Math.floor(current.tapLevel || 0);
+    const nEnergyLevel = Math.floor(d.energyLevel || 0);
+    const cEnergyLevel = Math.floor(current.energyLevel || 0);
+    const nRegenLevel = Math.floor(d.regenLevel || 0);
+    const cRegenLevel = Math.floor(current.regenLevel || 0);
+    const nTaps = Math.floor(d.totalTaps || 0);
+    const cTaps = Math.floor(current.totalTaps || 0);
 
-    console.log('━━━ SAVE id=' + d.userId + ' NEW=' + newScore + '/L' + newTapLevel + '/E' + newEnergyLevel + '/R' + newRegenLevel + '/P' + newPlayerLevel + ' CUR=' + currentScore + '/L' + currentTapLevel + '/E' + currentEnergyLevel + '/R' + currentRegenLevel + '/P' + currentPlayerLevel);
+    // ⚠️ ГЛАВНОЕ ПРАВИЛО: если уровни улучшений выросли - ВСЕГДА СОХРАНЯЕМ
+    const levelsGrew = (nTapLevel > cTapLevel) || (nEnergyLevel > cEnergyLevel) || (nRegenLevel > cRegenLevel);
 
-    const scoreLower = newScore < currentScore;
-    const tapLevelLower = newTapLevel < currentTapLevel;
-    const energyLevelLower = newEnergyLevel < currentEnergyLevel;
-    const regenLevelLower = newRegenLevel < currentRegenLevel;
-    const playerLevelLower = newPlayerLevel < currentPlayerLevel;
+    console.log('━━━ id=' + d.userId + ' NEW=' + nScore + '/L' + nTapLevel + '/E' + nEnergyLevel + '/R' + nRegenLevel + ' CUR=' + cScore + '/L' + cTapLevel + '/E' + cEnergyLevel + '/R' + cRegenLevel + (levelsGrew ? ' [GROW]' : ''));
 
-    // Игнорируем, если ЛЮБОЙ ключевой показатель уменьшился
-    if (scoreLower || tapLevelLower || energyLevelLower || regenLevelLower || playerLevelLower) {
-      console.log('   ❌ IGNORED');
+    // Если уровни не выросли И score уменьшился И тапы уменьшились - ИГНОР
+    if (!levelsGrew && nScore < cScore && nTaps < cTaps) {
+      console.log('   ❌ IGNORED (lower)');
       return res.json({
-        success: true,
-        ignored: true,
+        success: true, ignored: true,
         current: {
-          score: currentScore,
-          totalTaps: current.totalTaps,
-          tapLevel: currentTapLevel,
-          energyLevel: currentEnergyLevel,
-          regenLevel: currentRegenLevel,
-          tapPower: current.tapPower,
-          playerLevel: currentPlayerLevel
+          score: cScore, totalTaps: cTaps,
+          tapLevel: cTapLevel, energyLevel: cEnergyLevel, regenLevel: cRegenLevel,
+          tapPower: current.tapPower, playerLevel: current.playerLevel
         }
       });
     }
 
+    // ИНАЧЕ - СОХРАНЯЕМ
     await db.savePlayer(d.userId, d);
     const check = await db.getPlayer(d.userId);
-    console.log('   ✅ SAVED score=' + check.score + ' tapLevel=' + check.tapLevel + ' tapPower=' + check.tapPower);
+    console.log('   ✅ SAVED score=' + check.score + ' L' + check.tapLevel + '/E' + check.energyLevel + '/R' + check.regenLevel);
     res.json({
       success: true,
       saved: {
-        score: check.score,
-        totalTaps: check.totalTaps,
-        tapLevel: check.tapLevel,
-        energyLevel: check.energyLevel,
-        regenLevel: check.regenLevel,
-        tapPower: check.tapPower,
-        playerLevel: check.playerLevel
+        score: check.score, totalTaps: check.totalTaps,
+        tapLevel: check.tapLevel, energyLevel: check.energyLevel, regenLevel: check.regenLevel,
+        tapPower: check.tapPower, playerLevel: check.playerLevel
       }
     });
   } catch (e) {
