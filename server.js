@@ -31,8 +31,6 @@ app.post('/save', async (req, res) => {
 
     const newScore = Math.floor(d.score || 0);
     const currentScore = Math.floor(current.score || 0);
-    const newTaps = Math.floor(d.totalTaps || 0);
-    const currentTaps = Math.floor(current.totalTaps || 0);
     const newTapLevel = Math.floor(d.tapLevel || 0);
     const currentTapLevel = Math.floor(current.tapLevel || 0);
     const newEnergyLevel = Math.floor(d.energyLevel || 0);
@@ -42,25 +40,23 @@ app.post('/save', async (req, res) => {
     const newPlayerLevel = Math.floor(d.playerLevel || 1);
     const currentPlayerLevel = Math.floor(current.playerLevel || 1);
 
-    console.log('━━━ SAVE IN  id=' + d.userId);
-    console.log('   NEW: score=' + newScore + ' tapLevel=' + newTapLevel + ' energyLevel=' + newEnergyLevel + ' regenLevel=' + newRegenLevel + ' playerLevel=' + newPlayerLevel);
-    console.log('   CUR: score=' + currentScore + ' tapLevel=' + currentTapLevel + ' energyLevel=' + currentEnergyLevel + ' regenLevel=' + currentRegenLevel + ' playerLevel=' + currentPlayerLevel);
+    console.log('━━━ SAVE id=' + d.userId + ' NEW=' + newScore + '/L' + newTapLevel + '/E' + newEnergyLevel + '/R' + newRegenLevel + '/P' + newPlayerLevel + ' CUR=' + currentScore + '/L' + currentTapLevel + '/E' + currentEnergyLevel + '/R' + currentRegenLevel + '/P' + currentPlayerLevel);
 
-    // ❌ ИГНОРИРУЕМ, если ЛЮБОЙ ключевой показатель уменьшился
     const scoreLower = newScore < currentScore;
     const tapLevelLower = newTapLevel < currentTapLevel;
     const energyLevelLower = newEnergyLevel < currentEnergyLevel;
     const regenLevelLower = newRegenLevel < currentRegenLevel;
     const playerLevelLower = newPlayerLevel < currentPlayerLevel;
 
+    // Игнорируем, если ЛЮБОЙ ключевой показатель уменьшился
     if (scoreLower || tapLevelLower || energyLevelLower || regenLevelLower || playerLevelLower) {
-      console.log('   ❌ IGNORED (lower values)');
+      console.log('   ❌ IGNORED');
       return res.json({
         success: true,
         ignored: true,
         current: {
           score: currentScore,
-          totalTaps: currentTaps,
+          totalTaps: current.totalTaps,
           tapLevel: currentTapLevel,
           energyLevel: currentEnergyLevel,
           regenLevel: currentRegenLevel,
@@ -72,7 +68,7 @@ app.post('/save', async (req, res) => {
 
     await db.savePlayer(d.userId, d);
     const check = await db.getPlayer(d.userId);
-    console.log('   ✅ SAVED: score=' + check.score + ' tapLevel=' + check.tapLevel + ' energyLevel=' + check.energyLevel + ' regenLevel=' + check.regenLevel + ' playerLevel=' + check.playerLevel);
+    console.log('   ✅ SAVED score=' + check.score + ' tapLevel=' + check.tapLevel + ' tapPower=' + check.tapPower);
     res.json({
       success: true,
       saved: {
