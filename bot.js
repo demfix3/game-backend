@@ -6,7 +6,6 @@ const ADMIN_ID = process.env.ADMIN_ID || '1209267677';
 const BOT_USERNAME = 'igra2026_bot';
 const APP_SHORT_NAME = 'game';
 
-// Цены в звёздах
 const STARS_PACKS = {
   support_15: { stars: 15, item: 'support', label: '☕ Поддержать · 15 ⭐', coins: 0, boost: null },
   pack_start: { stars: 19, item: 'autoclicker24', label: '🤖 Автокликер 24ч · 19 ⭐', coins: 0, boost: { type: 'autoclick', duration: 24 * 60 * 60 * 1000 } },
@@ -39,8 +38,20 @@ function buildKeyboard(userId) {
   const tmeLink = 'https://t.me/' + BOT_USERNAME + '/' + APP_SHORT_NAME + '?startapp=' + userId;
   return { inline_keyboard: [
     [{ text: '🎮 Играть', url: tmeLink }],
+    [{ text: '💎 Магазин Stars', callback_data: 'shop_' + userId }],
     [{ text: '👥 Пригласить друга', url: 'https://t.me/share/url?url=https://t.me/' + BOT_USERNAME + '?start=ref_' + userId + '&text=Играй со мной!' }],
     [{ text: '🔄 Обновить', callback_data: 'refresh_' + userId }]
+  ]};
+}
+
+function shopKeyboard() {
+  return { inline_keyboard: [
+    [{ text: '☕ Поддержать · 15 ⭐', callback_data: 'buy_support_15' }],
+    [{ text: '🤖 Автокликер 24ч · 19 ⭐', callback_data: 'buy_pack_start' }],
+    [{ text: '💎 Малый · 49 ⭐', callback_data: 'buy_pack_small' }],
+    [{ text: '💎 Средний · 99 ⭐', callback_data: 'buy_pack_medium' }],
+    [{ text: '💎 Большой · 199 ⭐', callback_data: 'buy_pack_large' }],
+    [{ text: '👑 МЕГА · 499 ⭐', callback_data: 'buy_pack_mega' }]
   ]};
 }
 
@@ -72,19 +83,52 @@ function promoPanel() {
   ]};
 }
 
+async function sendStarsInvoice(chatId, userId, key) {
+  const pack = STARS_PACKS[key];
+  if (!pack) return false;
+  try {
+    await bot.sendInvoice(
+      chatId,
+      pack.label,
+      'Нажми "Оплатить" чтобы купить за ' + pack.stars + ' ⭐',
+      JSON.stringify({ userId, key }),
+      '',
+      'XTR',
+      [{ label: pack.label, amount: pack.stars }]
+    );
+    return true;
+  } catch (e) {
+    console.log('INVOICE ERROR:', e.message);
+    return false;
+  }
+}
+
 // ============ /start ============
 bot.onText(/\/start/, async (msg) => {
   const chatId = msg.chat.id;
   const userId = String(msg.from.id);
   const name = msg.from.first_name || 'Игрок';
-  const refMatch = (msg.text || '').match(/ref_(\d+)/);
+  const text = msg.text || '';
+  const refMatch = text.match(/ref_(\d+)/);
+  const buyMatch = text.match(/buy_(\S+)/);
+
   try {
     await db.createPlayer(userId, name);
+
     if (refMatch && refMatch[1] !== userId) {
       const result = await db.addReferral(userId, refMatch[1]);
       if (result.success) { try { await bot.sendMessage(refMatch[1], '🎉 У тебя новый реферал!'); } catch(e) {} }
     }
+
     const p = await db.getPlayer(userId);
+
+    // Если пришёл через buy_XXX — показываем инвойс
+    if (buyMatch) {
+      const key = buyMatch[1];
+      const sent = await sendStarsInvoice(chatId, userId, key);
+      if (sent) return;
+    }
+
     bot.sendMessage(chatId, buildStatsText(name, p, false), { parse_mode: 'HTML', reply_markup: buildKeyboard(userId) });
   } catch (e) {
     console.log('START ERROR:', e.message);
@@ -98,18 +142,17 @@ bot.onText(/\/admin/, (msg) => {
   bot.sendMessage(msg.chat.id, '👑 <b>АДМИН-ПАНЕЛЬ</b>\n\nВыбери действие:', { parse_mode: 'HTML', reply_markup: adminPanel() });
 });
 
-// ============ /buy — показать паки ============
+// ============ /buy ============
 bot.onText(/\/buy/, async (msg) => {
   const chatId = msg.chat.id;
-  let text = '💎 <b>МАГАЗИН</b>\n\nВыбери пакет:\n\n';
+  let text = '💎 <b>МАГАЗИН STARS</b>\n\nВыбери пакет:\n\n';
   Object.entries(STARS_PACKS).forEach(([key, pack]) => {
     text += pack.label + '\n';
     if (pack.coins) text += '  💰 ' + pack.coins.toLocaleString('ru') + ' монет\n';
     if (pack.boost) text += '  ⚡ Буст на ' + (pack.boost.duration / 3600000) + ' ч\n';
     text += '\n';
   });
-  const kb = { inline_keyboard: Object.entries(STARS_PACKS).map(([key, pack]) => [{ text: pack.label, callback_data: 'buy_' + key }]) };
-  bot.sendMessage(chatId, text, { parse_mode: 'HTML', reply_markup: kb });
+  bot.sendMessage(chatId, text, { parse_mode: 'HTML', reply_markup: shopKeyboard() });
 });
 
 // ============ CALLBACKS ============
@@ -137,26 +180,29 @@ bot.on('callback_query', async (query) => {
     return;
   }
 
+  // SHOP
+  if (data.startsWith('shop_')) {
+    let text = '💎 <b>МАГАЗИН STARS</b>\n\nВыбери пакет:\n\n';
+    Object.entries(STARS_PACKS).forEach(([key, pack]) => {
+      text += pack.label + '\n';
+      if (pack.coins) text += '  💰 ' + pack.coins.toLocaleString('ru') + ' монет\n';
+      if (pack.boost) text += '  ⚡ Буст на ' + (pack.boost.duration / 3600000) + ' ч\n';
+      text += '\n';
+    });
+    try {
+      await bot.editMessageText(text, { chat_id: chatId, message_id: msgId, parse_mode: 'HTML', reply_markup: shopKeyboard() });
+    } catch (e) {
+      await bot.sendMessage(chatId, text, { parse_mode: 'HTML', reply_markup: shopKeyboard() });
+    }
+    bot.answerCallbackQuery(query.id);
+    return;
+  }
+
   // BUY (Stars invoice)
   if (data.startsWith('buy_')) {
     const key = data.replace('buy_', '');
-    const pack = STARS_PACKS[key];
-    if (!pack) return bot.answerCallbackQuery(query.id, { text: '❌ Не найдено' });
-    try {
-      await bot.sendInvoice(
-        chatId,
-        pack.label,
-        'Нажми "Оплатить" чтобы купить за ' + pack.stars + ' ⭐',
-        JSON.stringify({ userId, key }),
-        '', // provider_token пустой для Stars
-        'XTR', // валюта Stars
-        [{ label: pack.label, amount: pack.stars }]
-      );
-      bot.answerCallbackQuery(query.id);
-    } catch (e) {
-      console.log('INVOICE ERROR:', e.message);
-      bot.answerCallbackQuery(query.id, { text: '❌ Ошибка оплаты' });
-    }
+    bot.answerCallbackQuery(query.id);
+    await sendStarsInvoice(chatId, userId, key);
     return;
   }
 
@@ -206,8 +252,7 @@ bot.on('callback_query', async (query) => {
     if (data === 'admin_promo_delete') { await edit('🗑 <b>УДАЛИТЬ</b>\n\n<code>/delpromo КОД</code>', promoPanel()); bot.answerCallbackQuery(query.id); return; }
 
     if (data === 'admin_donates') {
-      const s = await db.getStats();
-      await edit('💎 <b>ДОНАТЫ</b>\n\n⭐ Stars можно увидеть в @BotFather → Payments\n\nПоследние платежи — в логах Render.', adminBack());
+      await edit('💎 <b>ДОНАТЫ</b>\n\n⭐ Stars активируются автоматически.\nБаланс смотри в @BotFather → Payments.', adminBack());
       bot.answerCallbackQuery(query.id); return;
     }
 
@@ -222,33 +267,24 @@ bot.on('pre_checkout_query', (query) => {
 bot.on('successful_payment', async (msg) => {
   const userId = String(msg.from.id);
   const payment = msg.successful_payment;
-  const payload = JSON.parse(payment.invoice_payload || '{}');
+  let payload = {};
+  try { payload = JSON.parse(payment.invoice_payload || '{}'); } catch(e) {}
   const key = payload.key;
   const pack = STARS_PACKS[key];
 
   console.log('💎 PAYMENT:', userId, 'stars:', payment.total_amount, 'key:', key);
 
   try {
-    // Защита от двойного начисления
     const already = await db.hasPayment(payment.telegram_payment_charge_id);
-    if (already) {
-      console.log('⚠️ Payment already processed');
-      return;
-    }
+    if (already) { console.log('⚠️ Already processed'); return; }
 
-    await db.addPayment(userId, payment.total_amount, key, payment.telegram_payment_charge_id);
+    await db.addPayment(userId, payment.total_amount, key || 'unknown', payment.telegram_payment_charge_id);
 
-    if (!pack) {
-      console.log('⚠️ Unknown pack:', key);
-      return;
-    }
+    if (!pack) { bot.sendMessage(msg.chat.id, '✅ Оплата получена!'); return; }
 
-    // Начисляем монеты
     if (pack.coins && pack.coins > 0) {
       await db.giveCoins(userId, pack.coins);
     }
-
-    // Активируем буст
     if (pack.boost) {
       await db.addBoost(userId, pack.boost.type, pack.boost.duration);
     }
@@ -259,14 +295,14 @@ bot.on('successful_payment', async (msg) => {
     if (pack.boost) {
       const hours = pack.boost.duration / 3600000;
       successText += '⚡ Буст активирован на <b>' + hours + ' ч</b>\n';
-      if (pack.boost.type === 'autoclick') successText += '  🤖 Автокликер: +1 монета каждые 5 сек\n';
+      if (pack.boost.type === 'autoclick') successText += '  🤖 Автокликер: +1 монета / 5 сек\n';
     }
     if (key === 'support_15') successText += '❤️ Спасибо за поддержку!\n';
 
     bot.sendMessage(msg.chat.id, successText, { parse_mode: 'HTML' });
   } catch (e) {
     console.log('PAYMENT ERROR:', e.message);
-    bot.sendMessage(msg.chat.id, '❌ Ошибка при обработке платежа. Напиши админу.');
+    bot.sendMessage(msg.chat.id, '❌ Ошибка обработки платежа.');
   }
 });
 
