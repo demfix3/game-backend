@@ -13,6 +13,7 @@ app.use((req, res, next) => {
 
 app.get('/', (req, res) => res.json({ status: 'ok' }));
 
+// ===== ИГРОК =====
 app.get('/load', async (req, res) => {
   const userId = String(req.query.id);
   if (!userId || userId === 'undefined') return res.json({ error: 'no id' });
@@ -40,15 +41,29 @@ app.post('/save', async (req, res) => {
   } catch (e) { res.json({ error: e.message }); }
 });
 
+// ===== ЛИДЕРБОРД =====
 app.get('/leaderboard', async (req, res) => res.json(await db.getTop(100)));
 
+// ===== РЕФЕРАЛЫ =====
 app.post('/claimrefs', async (req, res) => res.json(await db.claimRefs(req.body.userId)));
 
+// ===== ПРОМОКОДЫ =====
 app.post('/usepromo', async (req, res) => {
   const { userId, code } = req.body;
   if (!userId || !code) return res.json({ success: false, reason: 'no_data' });
   const result = await db.usePromo(code.toUpperCase(), userId);
   res.json(result);
 });
+
+// ===== БУСТЫ =====
+app.get('/boosts', async (req, res) => {
+  const userId = String(req.query.id);
+  if (!userId) return res.json({ boosts: [] });
+  const boosts = await db.getActiveBoosts(userId);
+  res.json({ boosts });
+});
+
+// ⚠️ ВАЖНО: активация бустов происходит в боте через success_payment
+// Этот endpoint - ТОЛЬКО для проверки активных бустов
 
 app.listen(3000, () => console.log('✅ Сервер запущен: http://localhost:3000'));
