@@ -80,7 +80,6 @@ bot.onText(/\/start/, async (msg) => {
   }
 });
 
-// Кнопка "Обновить"
 bot.on('callback_query', async (query) => {
   if (!query.data || !query.data.startsWith('refresh_')) return;
 
@@ -94,14 +93,26 @@ bot.on('callback_query', async (query) => {
       return;
     }
 
-    await bot.editMessageText(buildStatsText(name, p, true), {
-      chat_id: query.message.chat.id,
-      message_id: query.message.message_id,
-      parse_mode: 'HTML',
-      reply_markup: buildKeyboard(userId)
-    });
-
-    bot.answerCallbackQuery(query.id, { text: '✅ Обновлено!' });
+    try {
+      await bot.editMessageText(buildStatsText(name, p, true), {
+        chat_id: query.message.chat.id,
+        message_id: query.message.message_id,
+        parse_mode: 'HTML',
+        reply_markup: buildKeyboard(userId)
+      });
+      bot.answerCallbackQuery(query.id, { text: '✅ Обновлено!' });
+    } catch (editErr) {
+      if (editErr.message && editErr.message.includes('message is not modified')) {
+        bot.answerCallbackQuery(query.id, { text: '📊 Данные актуальны' });
+      } else {
+        console.log('EDIT FAILED, sending new:', editErr.message);
+        await bot.sendMessage(query.message.chat.id, buildStatsText(name, p, true), {
+          parse_mode: 'HTML',
+          reply_markup: buildKeyboard(userId)
+        });
+        bot.answerCallbackQuery(query.id, { text: '✅ Обновлено!' });
+      }
+    }
   } catch (e) {
     console.log('REFRESH ERROR:', e.message);
     bot.answerCallbackQuery(query.id, { text: '❌ Ошибка обновления' });
