@@ -4,24 +4,15 @@ const app = express();
 
 app.use(express.json());
 
-// Отключаем предупреждение ngrok
-app.use((req, res, next) => {
-  res.setHeader('ngrok-skip-browser-warning', 'true');
-  next();
-});
-
-// CORS
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, ngrok-skip-browser-warning');
+  res.header('Access-Control-Allow-Headers', 'Content-Type');
   res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   if (req.method === 'OPTIONS') return res.sendStatus(200);
   next();
 });
 
-app.get('/', (req, res) => {
-  res.json({ status: 'ok', message: 'Сервер работает' });
-});
+app.get('/', (req, res) => res.json({ status: 'ok' }));
 
 app.get('/load', async (req, res) => {
   const userId = String(req.query.id);
@@ -35,10 +26,18 @@ app.get('/load', async (req, res) => {
 });
 
 app.post('/save', async (req, res) => {
-  const data = req.body;
-  if (!data.userId) return res.json({ error: 'no id' });
-  await db.savePlayer(data.userId, data);
-  res.json({ success: true });
+  try {
+    const d = req.body;
+    if (!d.userId) return res.json({ error: 'no userId' });
+    console.log('SAVE:', d.userId, 'score:', d.score, 'taps:', d.totalTaps);
+    await db.savePlayer(d.userId, d);
+    const check = await db.getPlayer(d.userId);
+    console.log('AFTER SAVE:', check.score, check.totalTaps);
+    res.json({ success: true, saved: { score: check.score, totalTaps: check.totalTaps } });
+  } catch (e) {
+    console.log('SAVE ERROR:', e);
+    res.json({ error: e.message });
+  }
 });
 
 app.get('/leaderboard', async (req, res) => {
@@ -57,4 +56,4 @@ app.post('/claimrefs', async (req, res) => {
   res.json(result);
 });
 
-app.listen(3000, () => console.log('Сервер запущен: http://localhost:3000'));
+app.listen(3000, () => console.log('✅ Сервер запущен: http://localhost:3000'));
