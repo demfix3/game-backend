@@ -30,29 +30,29 @@ app.post('/save', async (req, res) => {
     const d = req.body;
     if (!d.userId) return res.json({ error: 'no userId' });
 
-    // Загружаем игрока из базы
     let current = await db.getPlayer(d.userId);
     if (!current) {
       await db.createPlayer(d.userId);
       current = await db.getPlayer(d.userId);
     }
 
-    // ЗАЩИТА: если новый score МЕНЬШЕ текущего - не перезаписываем score/totalTaps/level
     const newScore = Math.floor(d.score || 0);
+    const currentScore = current.score || 0;
+    const currentTaps = current.totalTaps || 0;
     const newTaps = Math.floor(d.totalTaps || 0);
-    const newLevel = d.playerLevel || 1;
 
-    if (newScore >= (current.score || 0) || newScore >= (current.totalTaps || 0)) {
-      // Обновляем только если данные больше или равны
-      await db.savePlayer(d.userId, d);
-      const check = await db.getPlayer(d.userId);
-      console.log('SAVE OK:', d.userId, 'score:', check.score, 'taps:', check.totalTaps);
-      res.json({ success: true, saved: { score: check.score, totalTaps: check.totalTaps } });
-    } else {
-      // Игнорируем «старый» save
-      console.log('SAVE IGNORED (lower):', d.userId, 'new:', newScore, 'current:', current.score);
-      res.json({ success: true, ignored: true, current: { score: current.score, totalTaps: current.totalTaps } });
+    // Игнорируем save если новый score МЕНЬШЕ текущего И новый totalTaps МЕНЬШЕ текущего
+    if (newScore < currentScore && newTaps < currentTaps) {
+      console.log('SAVE IGNORED (lower):', d.userId, 'new score:', newScore, 'current:', currentScore);
+      res.json({ success: true, ignored: true, current: { score: currentScore, totalTaps: currentTaps } });
+      return;
     }
+
+    // Иначе — сохраняем
+    await db.savePlayer(d.userId, d);
+    const check = await db.getPlayer(d.userId);
+    console.log('SAVE OK:', d.userId, 'score:', check.score, 'taps:', check.totalTaps);
+    res.json({ success: true, saved: { score: check.score, totalTaps: check.totalTaps } });
   } catch (e) {
     console.log('SAVE ERROR:', e.message);
     res.json({ error: e.message });
