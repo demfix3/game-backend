@@ -1,7 +1,7 @@
 const TelegramBot = require('node-telegram-bot-api');
 const db = require('./database');
 
-const TOKEN = process.env.BOT_TOKEN || '8946713588:AAFBiC0BP2HU7a9iS-4laj6SR7xjutcOexI';
+const TOKEN = process.env.BOT_TOKEN || '8946713588:AAEH-WudfsfMVCL2CPZLNXetrSmf_jBPTbI';
 const ADMIN_ID = process.env.ADMIN_ID || '1209267677';
 const BOT_USERNAME = 'igra2026_bot';
 const APP_SHORT_NAME = 'game';
