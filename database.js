@@ -1,7 +1,7 @@
 const sqlite3 = require('sqlite3').verbose();
 
-const DB_PATH = process.env.DB_PATH || (process.env.NODE_ENV === 'production' && require('fs').existsSync('/data') ? '/data/game.db' : 'game.db');
-console.log('📁 Database path:', DB_PATH);
+const DB_PATH = process.env.DB_PATH || 'game.db';
+console.log('📁 DB path:', DB_PATH);
 
 const db = new sqlite3.Database(DB_PATH, (err) => {
   if (err) console.log('❌ DB ERROR:', err.message);
@@ -51,7 +51,6 @@ db.run(`CREATE TABLE IF NOT EXISTS promo_uses (
   UNIQUE(code, user_id)
 )`);
 
-// Бусты (автокликер)
 db.run(`CREATE TABLE IF NOT EXISTS boosts (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id TEXT,
@@ -60,7 +59,6 @@ db.run(`CREATE TABLE IF NOT EXISTS boosts (
   created_at INTEGER
 )`);
 
-// Платежи (Stars)
 db.run(`CREATE TABLE IF NOT EXISTS payments (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id TEXT,
@@ -68,6 +66,12 @@ db.run(`CREATE TABLE IF NOT EXISTS payments (
   item TEXT,
   charge_id TEXT UNIQUE,
   created_at INTEGER
+)`);
+
+db.run(`CREATE TABLE IF NOT EXISTS admins (
+  user_id TEXT PRIMARY KEY,
+  added_by TEXT,
+  added_at INTEGER
 )`);
 
 function getPlayer(id) {
@@ -86,9 +90,26 @@ function savePlayer(id, data) {
   return new Promise((resolve) => {
     db.run('INSERT OR IGNORE INTO players (id, name, created_at, last_seen) VALUES (?, ?, ?, ?)', [id, data.name || 'Игрок', Date.now(), Date.now()], () => {
       db.run(
-        'UPDATE players SET name = ?, score = ?, energy = ?, maxEnergy = ?, regen = ?, tapPower = ?, tapLevel = ?, energyLevel = ?, regenLevel = ?, totalTaps = ?, playerLevel = ?, last_seen = ? WHERE id = ?',
-        [data.name || 'Игрок', Math.floor(data.score || 0), data.energy !== undefined ? data.energy : 100, data.maxEnergy || 100, data.regen || 0.5, data.tapPower || 1, data.tapLevel || 0, data.energyLevel || 0, data.regenLevel || 0, Math.floor(data.totalTaps || 0), data.playerLevel || 1, Date.now(), id],
-        function(err) { if (err) console.log('SQL ERROR:', err); else console.log('UPDATED ROWS:', this.changes, 'for id:', id); resolve(); }
+        'UPDATE players SET name=?, score=?, energy=?, maxEnergy=?, regen=?, tapPower=?, tapLevel=?, energyLevel=?, regenLevel=?, totalTaps=?, playerLevel=?, last_seen=? WHERE id=?',
+        [
+          data.name || 'Игрок',
+          Math.floor(data.score || 0),
+          data.energy !== undefined ? data.energy : 100,
+          data.maxEnergy || 100,
+          data.regen || 0.5,
+          data.tapPower || 1,
+          data.tapLevel || 0,
+          data.energyLevel || 0,
+          data.regenLevel || 0,
+          Math.floor(data.totalTaps || 0),
+          data.playerLevel || 1,
+          Date.now(),
+          id
+        ],
+        function(err) {
+          if (err) console.log('SQL ERROR:', err);
+          resolve();
+        }
       );
     });
   });
@@ -132,7 +153,6 @@ function deletePlayer(userId) {
   });
 }
 
-// ===== РЕФЕРАЛЫ =====
 function getReferrals(userId) {
   return new Promise((resolve) => {
     db.get('SELECT refCount, refClaimed FROM players WHERE id = ?', [userId], (err, row) => resolve(row || { refCount: 0, refClaimed: 0 }));
@@ -166,19 +186,12 @@ function addReferral(userId, refId) {
   });
 }
 
-// ===== ПРОМОКОДЫ =====
 function createPromo(code, reward, maxUses) {
   return new Promise((resolve) => {
     db.run('INSERT OR REPLACE INTO promocodes (code, reward, maxUses, usedCount, created_at) VALUES (?, ?, ?, 0, ?)', [code, reward, maxUses, Date.now()], function(err) {
       if (err) return resolve({ success: false, error: err.message });
       resolve({ success: true });
     });
-  });
-}
-
-function getPromo(code) {
-  return new Promise((resolve) => {
-    db.get('SELECT * FROM promocodes WHERE code = ?', [code], (err, row) => resolve(row));
   });
 }
 
@@ -215,7 +228,6 @@ function usePromo(code, userId) {
   });
 }
 
-// ===== БУСТЫ / АВТОКЛИКЕР =====
 function addBoost(userId, type, durationMs) {
   return new Promise((resolve) => {
     const activeUntil = Date.now() + durationMs;
@@ -227,12 +239,10 @@ function addBoost(userId, type, durationMs) {
 
 function getActiveBoosts(userId) {
   return new Promise((resolve) => {
-    const now = Date.now();
-    db.all('SELECT * FROM boosts WHERE user_id = ? AND active_until > ? ORDER BY active_until DESC', [userId, now], (err, rows) => resolve(rows || []));
+    db.all('SELECT * FROM boosts WHERE user_id = ? AND active_until > ? ORDER BY active_until DESC', [userId, Date.now()], (err, rows) => resolve(rows || []));
   });
 }
 
-// ===== ПЛАТЕЖИ =====
 function addPayment(userId, amount, item, chargeId) {
   return new Promise((resolve) => {
     db.run('INSERT OR IGNORE INTO payments (user_id, amount, item, charge_id, created_at) VALUES (?, ?, ?, ?, ?)', [userId, amount, item, chargeId, Date.now()], function(err) {
@@ -254,10 +264,41 @@ function getTotalDonated(userId) {
   });
 }
 
+function addAdmin(userId, addedBy) {
+  return new Promise((resolve) => {
+    db.run('INSERT OR IGNORE INTO admins (user_id, added_by, added_at) VALUES (?, ?, ?)', [userId, addedBy, Date.now()], function(err) {
+      if (err) return resolve({ success: false, error: err.message });
+      resolve({ success: true });
+    });
+  });
+}
+
+function removeAdmin(userId) {
+  return new Promise((resolve) => {
+    db.run('DELETE FROM admins WHERE user_id = ?', [userId], function(err) {
+      if (err) return resolve({ success: false });
+      resolve({ success: true });
+    });
+  });
+}
+
+function isAdminInDB(userId) {
+  return new Promise((resolve) => {
+    db.get('SELECT * FROM admins WHERE user_id = ?', [userId], (err, row) => resolve(!!row));
+  });
+}
+
+function listAdmins() {
+  return new Promise((resolve) => {
+    db.all('SELECT * FROM admins ORDER BY added_at DESC', (err, rows) => resolve(rows || []));
+  });
+}
+
 module.exports = {
   getPlayer, createPlayer, savePlayer, getTop, getStats, giveCoins, getAllPlayers, banPlayer, deletePlayer,
   addReferral, getReferrals, claimRefs,
-  createPromo, getPromo, listPromos, deletePromo, usePromo,
+  createPromo, listPromos, deletePromo, usePromo,
   addBoost, getActiveBoosts,
-  addPayment, hasPayment, getTotalDonated
+  addPayment, hasPayment, getTotalDonated,
+  addAdmin, removeAdmin, isAdminInDB, listAdmins
 };
